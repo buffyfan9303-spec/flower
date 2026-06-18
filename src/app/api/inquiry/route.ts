@@ -1,6 +1,7 @@
 import { NextResponse } from "next/server";
 import { validateInquiry } from "@/lib/form-schemas";
 import { notifyInquiry } from "@/lib/notify";
+import { saveInquiry } from "@/lib/orders-store";
 
 export const runtime = "nodejs";
 
@@ -17,7 +18,7 @@ export async function POST(req: Request) {
     return NextResponse.json({ ok: false, errors }, { status: 422 });
   }
   const id = `INQ-${Date.now().toString(36).toUpperCase()}`;
-  // TODO: DB 저장 + 담당자 배정
-  await notifyInquiry(id, body);
+  // TODO: 담당자 배정
+  await Promise.all([notifyInquiry(id, body), saveInquiry(id, body)]);
   return NextResponse.json({ ok: true, id }, { status: 201 });
 }

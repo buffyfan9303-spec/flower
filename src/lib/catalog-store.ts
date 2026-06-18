@@ -1,9 +1,8 @@
-// 서버 전용 콘텐츠 저장소. content/*.json 파일을 읽고 쓰며, 파일이 없으면 data.ts 시드로 폴백.
-// ⚠️ 클라이언트 컴포넌트에서 import 금지 (fs 사용).
-// 로컬/Node 런타임에서 동작. Vercel 서버리스(읽기전용 fs)에서는 영속 저장이 안 되므로
-// 운영 배포 시에는 Supabase 등 DB로 교체 권장.
+// 콘텐츠 저장소. 우선순위: Supabase(site_content 테이블) → 로컬 파일(content/*.json) → data.ts 시드.
+// ⚠️ 서버 전용 (fs + service_role 사용). 클라이언트 컴포넌트에서 import 금지.
 import { promises as fs } from "fs";
 import path from "path";
+import { getSupabase } from "./supabase";
 import {
   products as seedProducts,
   collections as seedCollections,
@@ -36,23 +35,7 @@ function seedCatalog(): Catalog {
   );
 }
 
-async function readJson<T>(file: string, fallback: T): Promise<T> {
-  try {
-    const raw = await fs.readFile(file, "utf-8");
-    return JSON.parse(raw) as T;
-  } catch {
-    return fallback;
-  }
-}
-
-async function writeJson(file: string, data: unknown) {
-  await fs.mkdir(DATA_DIR, { recursive: true });
-  await fs.writeFile(file, JSON.stringify(data, null, 2), "utf-8");
-}
-
-export async function getCatalog(): Promise<Catalog> {
-  const cat = await readJson<Catalog>(CATALOG_FILE, seedCatalog());
-  // 방어적 보정
+function normalizeCatalog(cat: Partial<Catalog>): Catalog {
   return {
     products: Array.isArray(cat.products) ? cat.products : [],
     collections: Array.isArray(cat.collections) ? cat.collections : [],
@@ -60,13 +43,7 @@ export async function getCatalog(): Promise<Catalog> {
   };
 }
 
-export async function saveCatalog(cat: Catalog) {
-  await writeJson(CATALOG_FILE, cat);
-}
-
-export async function getSettings(): Promise<SiteSettings> {
-  const s = await readJson<Partial<SiteSettings>>(SETTINGS_FILE, {});
-  // 기본값과 병합(누락 필드 보강)
+function mergeSettings(s: Partial<SiteSettings>): SiteSettings {
   return {
     ...defaultSettings,
     ...s,
@@ -80,7 +57,60 @@ export async function getSettings(): Promise<SiteSettings> {
   };
 }
 
+// ── 파일 폴백 ──
+async function readJson<T>(file: string, fallback: T): Promise<T> {
+  try {
+    return JSON.parse(await fs.readFile(file, "utf-8")) as T;
+  } catch {
+    return fallback;
+  }
+}
+async function writeJson(file: string, data: unknown) {
+  await fs.mkdir(DATA_DIR, { recursive: true });
+  await fs.writeFile(file, JSON.stringify(data, null, 2), "utf-8");
+}
+
+// ── Supabase 헬퍼 ──
+async function sbRead(key: string): Promise<any | null> {
+  const sb = getSupabase();
+  if (!sb) return undefined; // 미설정 신호
+  const { data, error } = await sb
+    .from("site_content")
+    .select("data")
+    .eq("key", key)
+    .maybeSingle();
+  if (error) throw new Error(`Supabase read(${key}): ${error.message}`);
+  return data?.data ?? null; // null = 행 없음
+}
+async function sbWrite(key: string, data: unknown) {
+  const sb = getSupabase();
+  if (!sb) return false;
+  const { error } = await sb
+    .from("site_content")
+    .upsert({ key, data, updated_at: new Date().toISOString() });
+  if (error) throw new Error(`Supabase write(${key}): ${error.message}`);
+  return true;
+}
+
+// ── 카탈로그 ──
+export async function getCatalog(): Promise<Catalog> {
+  const sbVal = await sbRead("catalog");
+  if (sbVal !== undefined) return sbVal ? normalizeCatalog(sbVal) : seedCatalog();
+  return normalizeCatalog(await readJson<Catalog>(CATALOG_FILE, seedCatalog()));
+}
+export async function saveCatalog(cat: Catalog) {
+  if (await sbWrite("catalog", cat)) return;
+  await writeJson(CATALOG_FILE, cat);
+}
+
+// ── 설정 ──
+export async function getSettings(): Promise<SiteSettings> {
+  const sbVal = await sbRead("settings");
+  if (sbVal !== undefined) return mergeSettings(sbVal ?? {});
+  return mergeSettings(await readJson<Partial<SiteSettings>>(SETTINGS_FILE, {}));
+}
 export async function saveSettings(s: SiteSettings) {
+  if (await sbWrite("settings", s)) return;
   await writeJson(SETTINGS_FILE, s);
 }
 
@@ -89,12 +119,10 @@ export async function getVisibleProducts(): Promise<Product[]> {
   const { products } = await getCatalog();
   return products.filter((p) => !p.hidden);
 }
-
 export async function getProductById(id: string): Promise<Product | undefined> {
   const { products } = await getCatalog();
   return products.find((p) => p.id === id);
 }
-
 export async function getRelated(p: Product, n = 4): Promise<Product[]> {
   const { products } = await getCatalog();
   const visible = products.filter((x) => !x.hidden && x.id !== p.id);

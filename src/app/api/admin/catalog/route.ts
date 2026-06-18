@@ -28,9 +28,10 @@ export async function PUT(req: Request) {
   }
   try {
     await saveCatalog(catalog);
-  } catch {
+  } catch (e) {
+    const msg = e instanceof Error ? e.message : "알 수 없는 오류";
     return NextResponse.json(
-      { ok: false, error: "이 환경에서는 저장할 수 없습니다 (서버리스 읽기전용 파일시스템). 운영 저장에는 DB(Supabase) 연동이 필요합니다." },
+      { ok: false, error: `저장 실패: ${msg} (Supabase 미설정 시 서버리스에서는 파일 저장이 불가합니다. 스키마(site_content) 생성 여부도 확인하세요.)` },
       { status: 503 }
     );
   }
