@@ -3,7 +3,7 @@
 import { useEffect, useState } from "react";
 import SmartImage from "@/components/SmartImage";
 import { ai, Labeled, SaveBar, IconBtn } from "./ui";
-import { formatKRW, type Product, type Variant, type Collection, type EventItem } from "@/lib/data";
+import { formatKRW, type Product, type Collection, type EventItem } from "@/lib/data";
 
 type Catalog = { products: Product[]; collections: Collection[]; events: EventItem[] };
 

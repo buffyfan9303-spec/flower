@@ -26,7 +26,14 @@ export async function PUT(req: Request) {
   ) {
     return NextResponse.json({ ok: false, error: "invalid catalog" }, { status: 422 });
   }
-  await saveCatalog(catalog);
+  try {
+    await saveCatalog(catalog);
+  } catch {
+    return NextResponse.json(
+      { ok: false, error: "이 환경에서는 저장할 수 없습니다 (서버리스 읽기전용 파일시스템). 운영 저장에는 DB(Supabase) 연동이 필요합니다." },
+      { status: 503 }
+    );
+  }
   revalidatePath("/", "layout");
   return NextResponse.json({ ok: true });
 }

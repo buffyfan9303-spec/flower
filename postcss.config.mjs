@@ -1,13 +1,15 @@
+import path from "path";
+import { fileURLToPath } from "url";
+
+// tailwind 설정 경로를 "이 파일 위치" 기준 절대경로로 계산합니다.
+// → process.cwd()와 무관하게(=preview 하네스의 워크스페이스 루트 cwd에서도),
+//   그리고 OS와 무관하게(=Vercel Linux 빌드에서도) tailwind.config.ts를 정확히 찾습니다.
+const dir = path.dirname(fileURLToPath(import.meta.url));
+
 /** @type {import('postcss-load-config').Config} */
-// tailwindcss 플러그인은 config를 process.cwd() 기준으로 탐색합니다.
-// preview 하네스가 워크스페이스 루트(다른 cwd)에서 dev 서버를 띄우므로
-// flower의 tailwind.config.ts 경로를 명시적으로 지정합니다.
 const config = {
   plugins: {
-    tailwindcss: {
-      config:
-        "C:/Users/buffy/OneDrive/바탕 화면/드 디어 플라워/deudieo-flower/tailwind.config.ts",
-    },
+    tailwindcss: { config: path.join(dir, "tailwind.config.ts") },
   },
 };
 
